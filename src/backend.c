@@ -468,15 +468,15 @@ static struct server *get_server_hh(struct stream *s)
 	else
 		return map_get_server_hash(px, hash);
 }
-+/*
-+ * This function tries to find a running server for the proxy <px> following
-+ * the hash on method. It looks in a variety of locations to hash on
-+ * based on the packet itself to compute the server ID. This is useful to optimize
-+ * performance by avoiding bounces between servers in contexts where sessions
-+ * are shared but cookies are not usable. If the parameter is not found, NULL
-+ * is returned. If any server is found, it will be returned. If no valid server
-+ * is found, NULL is returned.
-+ */
+/*
+ * This function tries to find a running server for the proxy <px> following
+ * the hash on method. It looks in a variety of locations to hash on
+ * based on the packet itself to compute the server ID. This is useful to optimize
+ * performance by avoiding bounces between servers in contexts where sessions
+ * are shared but cookies are not usable. If the parameter is not found, NULL
+ * is returned. If any server is found, it will be returned. If no valid server
+ * is found, NULL is returned.
+ */
 struct server *get_server_hashon(struct stream *s)
 {
     struct proxy *px   = s->be;
