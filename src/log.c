@@ -256,6 +256,8 @@ static inline const char *fmt_directive(const struct proxy *curproxy)
 		return "acl";
 	case ARGC_STK:
 		return "stick";
+    case ARGC_HON:
+        return "hash-on";
 	case ARGC_TRK:
 		return "track-sc";
 	case ARGC_LOG:

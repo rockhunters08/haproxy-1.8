@@ -1982,6 +1982,18 @@ static void deinit_tcp_rules(struct list *rules)
 	}
 }
 
+static void deinit_hash_rules(struct list *rules)
+{
+    struct hash_rule *rule, *ruleb;
+    
+    list_for_each_entry_safe(rule, ruleb, rules, list) {
+        LIST_DEL(&rule->list);
+        deinit_acl_cond(rule->cond);
+        release_sample_expr(rule->expr);
+        free(rule);
+    }
+}
+
 static void deinit_stick_rules(struct list *rules)
 {
 	struct sticking_rule *rule, *ruleb;
@@ -2159,6 +2171,7 @@ void deinit(void)
 
 		deinit_stick_rules(&p->storersp_rules);
 		deinit_stick_rules(&p->sticking_rules);
+        deinit_hash_rules(&p->hash_rules);
 
 		h = p->req_cap;
 		while (h) {
