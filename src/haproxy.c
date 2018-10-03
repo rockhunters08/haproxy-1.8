@@ -2448,8 +2448,7 @@ static void *run_thread_poll_loop(void *data)
 	struct per_thread_deinit_fct *ptdf;
 	__decl_hathreads(static HA_SPINLOCK_T start_lock);
 
-	tid     = *((unsigned int *)data);
-	tid_bit = (1UL << tid);
+	ha_set_tid(*((unsigned int *)data));
 	tv_update_date(-1,-1);
 
 	list_for_each_entry(ptif, &per_thread_init_list, list) {
@@ -3018,7 +3017,7 @@ int main(int argc, char **argv)
 		int          i;
 		sigset_t     blocked_sig, old_sig;
 
-		THREAD_SYNC_INIT((1UL << global.nbthread) - 1);
+		THREAD_SYNC_INIT();
 
 		/* Init tids array */
 		for (i = 0; i < global.nbthread; i++)
