@@ -720,7 +720,7 @@ void stream_int_update(struct stream_interface *si)
 				ic->rex = TICK_ETERNITY;
 			}
 		}
-		else {
+		else if (!(si->flags & SI_FL_WAIT_ROOM) || !ic->buf->o) {
 			/* (re)start reading and update timeout. Note: we don't recompute the timeout
 			 * everytime we get here, otherwise it would risk never to expire. We only
 			 * update it if is was not yet set. The stream socket handler will already
@@ -1397,7 +1397,7 @@ void si_applet_wake_cb(struct stream_interface *si)
 	/* update the stream-int, channels, and possibly wake the stream up */
 	stream_int_notify(si);
 
-	/* stream_int_notify may pass throught checksnd and released some
+	/* stream_int_notify may pass through checksnd and released some
 	 * WAIT_ROOM flags. The process_stream will consider those flags
 	 * to wakeup the appctx but in the case the task is not in runqueue
 	 * we may have to wakeup the appctx immediately.
