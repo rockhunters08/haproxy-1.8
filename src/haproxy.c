@@ -1,6 +1,6 @@
 /*
  * HA-Proxy : High Availability-enabled HTTP/TCP proxy
- * Copyright 2000-2018 Willy Tarreau <willy@haproxy.org>.
+ * Copyright 2000-2019 Willy Tarreau <willy@haproxy.org>.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -354,7 +354,7 @@ void hap_register_per_thread_deinit(void (*fct)())
 static void display_version()
 {
 	printf("HA-Proxy version " HAPROXY_VERSION " " HAPROXY_DATE"\n");
-	printf("Copyright 2000-2018 Willy Tarreau <willy@haproxy.org>\n\n");
+	printf("Copyright 2000-2019 Willy Tarreau <willy@haproxy.org>\n\n");
 }
 
 static void display_build_opts()
@@ -1570,13 +1570,13 @@ static void init(int argc, char **argv)
 		exit(1);
 	}
 
-	pattern_finalize_config();
-
 	err_code |= check_config_validity();
 	if (err_code & (ERR_ABORT|ERR_FATAL)) {
 		ha_alert("Fatal errors found in configuration.\n");
 		exit(1);
 	}
+
+	pattern_finalize_config();
 
 	/* recompute the amount of per-process memory depending on nbproc and
 	 * the shared SSL cache size (allowed to exist in all processes).
@@ -1828,6 +1828,9 @@ static void init(int argc, char **argv)
 	global.hardmaxconn = global.maxconn;  /* keep this max value */
 	global.maxsock += global.maxconn * 2; /* each connection needs two sockets */
 	global.maxsock += global.maxpipes * 2; /* each pipe needs two FDs */
+	global.maxsock += global.nbthread;     /* one epoll_fd/kqueue_fd per thread */
+	global.maxsock += 2 * global.nbthread; /* one wake-up pipe (2 fd) per thread */
+
 	/* compute fd used by async engines */
 	if (global.ssl_used_async_engines) {
 		int sides = !!global.ssl_used_frontend + !!global.ssl_used_backend;
@@ -2167,6 +2170,7 @@ void deinit(void)
 		}
 
 		deinit_tcp_rules(&p->tcp_req.inspect_rules);
+		deinit_tcp_rules(&p->tcp_rep.inspect_rules);
 		deinit_tcp_rules(&p->tcp_req.l4_rules);
 
 		deinit_stick_rules(&p->storersp_rules);
@@ -2218,6 +2222,9 @@ void deinit(void)
 			free(s->agent.send_string);
 			free(s->hostname_dn);
 			free((char*)s->conf.file);
+			free(s->idle_conns);
+			free(s->priv_conns);
+			free(s->safe_conns);
 
 			if (s->use_ssl || s->check.use_ssl) {
 				if (xprt_get(XPRT_SSL) && xprt_get(XPRT_SSL)->destroy_srv)
@@ -2362,7 +2369,13 @@ void mworker_pipe_handler(int fd)
 		break;
 	}
 
-	deinit();
+	/* At this step the master is down before
+	 * this worker perform a 'normal' exit.
+	 * So we want to exit with an error but
+	 * other threads could currently process
+	 * some stuff so we can't perform a clean
+	 * deinit().
+	 */
 	exit(EXIT_FAILURE);
 	return;
 }
@@ -2377,7 +2390,10 @@ void mworker_pipe_register()
 	fcntl(mworker_pipe[0], F_SETFL, O_NONBLOCK);
 	fdtab[mworker_pipe[0]].owner = mworker_pipe;
 	fdtab[mworker_pipe[0]].iocb = mworker_pipe_handler;
-	fd_insert(mworker_pipe[0], MAX_THREADS_MASK);
+	/* In multi-tread, we need only one thread to process
+	 * events on the pipe with master
+	 */
+	fd_insert(mworker_pipe[0], 1);
 	fd_want_recv(mworker_pipe[0]);
 }
 

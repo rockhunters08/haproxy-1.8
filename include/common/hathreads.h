@@ -213,14 +213,14 @@ static inline unsigned long thread_isolated()
 	})
 #else
 /* gcc >= 4.7 */
-#define HA_ATOMIC_CAS(val, old, new) __atomic_compare_exchange_n(val, old, new, 0, 0, 0)
-#define HA_ATOMIC_ADD(val, i)        __atomic_add_fetch(val, i, 0)
-#define HA_ATOMIC_XADD(val, i)       __atomic_fetch_add(val, i, 0)
-#define HA_ATOMIC_SUB(val, i)        __atomic_sub_fetch(val, i, 0)
-#define HA_ATOMIC_AND(val, flags)    __atomic_and_fetch(val, flags, 0)
-#define HA_ATOMIC_OR(val, flags)     __atomic_or_fetch(val,  flags, 0)
-#define HA_ATOMIC_XCHG(val, new)     __atomic_exchange_n(val, new, 0)
-#define HA_ATOMIC_STORE(val, new)    __atomic_store_n(val, new, 0)
+#define HA_ATOMIC_CAS(val, old, new) __atomic_compare_exchange_n(val, old, new, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
+#define HA_ATOMIC_ADD(val, i)        __atomic_add_fetch(val, i, __ATOMIC_SEQ_CST)
+#define HA_ATOMIC_XADD(val, i)       __atomic_fetch_add(val, i, __ATOMIC_SEQ_CST)
+#define HA_ATOMIC_SUB(val, i)        __atomic_sub_fetch(val, i, __ATOMIC_SEQ_CST)
+#define HA_ATOMIC_AND(val, flags)    __atomic_and_fetch(val, flags, __ATOMIC_SEQ_CST)
+#define HA_ATOMIC_OR(val, flags)     __atomic_or_fetch(val,  flags, __ATOMIC_SEQ_CST)
+#define HA_ATOMIC_XCHG(val, new)     __atomic_exchange_n(val, new, __ATOMIC_SEQ_CST)
+#define HA_ATOMIC_STORE(val, new)    __atomic_store_n(val, new, __ATOMIC_SEQ_CST)
 #endif
 
 #define HA_ATOMIC_UPDATE_MAX(val, new)					\
@@ -344,7 +344,6 @@ enum lock_label {
 	TASK_WQ_LOCK,
 	POOL_LOCK,
 	LISTENER_LOCK,
-	LISTENER_QUEUE_LOCK,
 	PROXY_LOCK,
 	SERVER_LOCK,
 	UPDATED_SERVERS_LOCK,
@@ -373,6 +372,7 @@ enum lock_label {
 	START_LOCK,
 	TLSKEYS_REF_LOCK,
 	PENDCONN_LOCK,
+	AUTH_LOCK,
 	LOCK_LABELS
 };
 struct lock_stat {
@@ -466,7 +466,6 @@ static inline const char *lock_label(enum lock_label label)
 	case TASK_WQ_LOCK:         return "TASK_WQ";
 	case POOL_LOCK:            return "POOL";
 	case LISTENER_LOCK:        return "LISTENER";
-	case LISTENER_QUEUE_LOCK:  return "LISTENER_QUEUE";
 	case PROXY_LOCK:           return "PROXY";
 	case SERVER_LOCK:          return "SERVER";
 	case UPDATED_SERVERS_LOCK: return "UPDATED_SERVERS";
@@ -495,6 +494,7 @@ static inline const char *lock_label(enum lock_label label)
 	case START_LOCK:           return "START";
 	case TLSKEYS_REF_LOCK:     return "TLSKEYS_REF";
 	case PENDCONN_LOCK:        return "PENDCONN";
+	case AUTH_LOCK:            return "AUTH";
 	case LOCK_LABELS:          break; /* keep compiler happy */
 	};
 	/* only way to come here is consecutive to an internal bug */

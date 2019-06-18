@@ -25,7 +25,7 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -211,6 +211,12 @@ int hpack_decode_frame(struct hpack_dht *dht, const uint8_t *raw, uint32_t len,
 			idx = get_var_int(&raw, &len, 5);
 			if (len == (uint32_t)-1) { // truncated
 				ret = -HPACK_ERR_TRUNCATED;
+				goto leave;
+			}
+
+			if (idx > dht->size) {
+				hpack_debug_printf("##ERR@%d##\n", __LINE__);
+				ret = -HPACK_ERR_INVALID_ARGUMENT;
 				goto leave;
 			}
 			continue;

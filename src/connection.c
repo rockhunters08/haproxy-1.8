@@ -699,7 +699,7 @@ int conn_recv_netscaler_cip(struct connection *conn, int flag)
 {
 	char *line;
 	uint32_t hdr_len;
-	uint8_t ip_v;
+	uint8_t ip_ver;
 
 	/* we might have been called just after an asynchronous shutr */
 	if (conn->flags & CO_FL_SOCK_RD_SH)
@@ -765,9 +765,9 @@ int conn_recv_netscaler_cip(struct connection *conn, int flag)
 		goto missing;
 
 	/* Get IP version from the first four bits */
-	ip_v = (*line & 0xf0) >> 4;
+	ip_ver = (*line & 0xf0) >> 4;
 
-	if (ip_v == 4) {
+	if (ip_ver == 4) {
 		struct ip *hdr_ip4;
 		struct my_tcphdr *hdr_tcp;
 
@@ -797,7 +797,7 @@ int conn_recv_netscaler_cip(struct connection *conn, int flag)
 
 		conn->flags |= CO_FL_ADDR_FROM_SET | CO_FL_ADDR_TO_SET;
 	}
-	else if (ip_v == 6) {
+	else if (ip_ver == 6) {
 		struct ip6_hdr *hdr_ip6;
 		struct my_tcphdr *hdr_tcp;
 
@@ -874,6 +874,7 @@ int conn_recv_netscaler_cip(struct connection *conn, int flag)
 	return 0;
 }
 
+/* Note: <remote> is explicitly allowed to be NULL */
 int make_proxy_line(char *buf, int buf_len, struct server *srv, struct connection *remote)
 {
 	int ret = 0;
@@ -985,6 +986,7 @@ static int make_tlv(char *dest, int dest_len, char type, uint16_t length, const 
 	return length + sizeof(*tlv);
 }
 
+/* Note: <remote> is explicitly allowed to be NULL */
 int make_proxy_line_v2(char *buf, int buf_len, struct server *srv, struct connection *remote)
 {
 	const char pp2_signature[] = PP2_SIGNATURE;
@@ -1060,7 +1062,7 @@ int make_proxy_line_v2(char *buf, int buf_len, struct server *srv, struct connec
 		}
 	}
 
-	if (conn_get_alpn(remote, &value, &value_len)) {
+	if (remote && conn_get_alpn(remote, &value, &value_len)) {
 		if ((buf_len - ret) < sizeof(struct tlv))
 			return 0;
 		ret += make_tlv(&buf[ret], (buf_len - ret), PP2_TYPE_ALPN, value_len, value);
