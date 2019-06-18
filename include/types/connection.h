@@ -45,7 +45,7 @@ struct server;
 struct pipe;
 
 
-/* A connection handle is how we differenciate two connections on the lower
+/* A connection handle is how we differentiate two connections on the lower
  * layers. It usually is a file descriptor but can be a connection id.
  */
 union conn_handle {
@@ -70,6 +70,7 @@ enum {
 	CS_FL_ERROR         = 0x00000100,  /* a fatal error was reported */
 	CS_FL_RCV_MORE      = 0x00000200,  /* more bytes to receive but not enough room */
 	CS_FL_EOS           = 0x00001000,  /* End of stream */
+	CS_FL_KILL_CONN     = 0x00002000,  /* must kill the connection when the CS closes */
 };
 
 /* cs_shutr() modes */

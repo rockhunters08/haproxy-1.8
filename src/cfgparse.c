@@ -613,16 +613,20 @@ int parse_process_number(const char *arg, unsigned long *proc, int *autoinc, cha
 	else if (strcmp(arg, "even") == 0)
 		*proc |= (~0UL/3UL) << 1; /* 0xAAA...AAA */
 	else {
-		char *dash;
+		const char *p, *dash = NULL;
 		unsigned int low, high;
 
-		if (!isdigit((int)*arg)) {
-			memprintf(err, "'%s' is not a valid number.\n", arg);
-			return -1;
+		for (p = arg; *p; p++) {
+			if (*p == '-' && !dash)
+				dash = p;
+			else if (!isdigit((int)*p)) {
+				memprintf(err, "'%s' is not a valid number/range.", arg);
+				return -1;
+			}
 		}
 
 		low = high = str2uic(arg);
-		if ((dash = strchr(arg, '-')) != NULL)
+		if (dash)
 			high = ((!*(dash+1)) ? LONGBITS : str2uic(dash + 1));
 
 		if (high < low) {
@@ -2787,14 +2791,14 @@ int cfg_parse_listen(const char *file, int linenum, char **args, int kwm)
 			curproxy->server_id_hdr_name = strdup(defproxy.server_id_hdr_name);
 		}
 
+		/* initialize error relocations */
+		for (rc = 0; rc < HTTP_ERR_SIZE; rc++)
+			chunk_dup(&curproxy->errmsg[rc], &defproxy.errmsg[rc]);
+
 		if (curproxy->cap & PR_CAP_FE) {
 			curproxy->maxconn = defproxy.maxconn;
 			curproxy->backlog = defproxy.backlog;
 			curproxy->fe_sps_lim = defproxy.fe_sps_lim;
-
-			/* initialize error relocations */
-			for (rc = 0; rc < HTTP_ERR_SIZE; rc++)
-				chunk_dup(&curproxy->errmsg[rc], &defproxy.errmsg[rc]);
 
 			curproxy->to_log = defproxy.to_log & ~LW_COOKIE & ~LW_REQHDR & ~ LW_RSPHDR;
 		}
@@ -2844,7 +2848,10 @@ int cfg_parse_listen(const char *file, int linenum, char **args, int kwm)
 
 			if (defproxy.url_param_name)
 				curproxy->url_param_name = strdup(defproxy.url_param_name);
-			curproxy->url_param_len = defproxy.url_param_len;
+			curproxy->url_param_len   = defproxy.url_param_len;
+			curproxy->uri_whole       = defproxy.uri_whole;
+			curproxy->uri_len_limit   = defproxy.uri_len_limit;
+			curproxy->uri_dirs_depth1 = defproxy.uri_dirs_depth1;
 
 			if (defproxy.hh_name)
 				curproxy->hh_name = strdup(defproxy.hh_name);
@@ -5082,7 +5089,7 @@ stats_error_parsing:
 									((unsigned char) (packetlen >> 16) & 0xff));
 
 								curproxy->check_req[3] = 1;
-								curproxy->check_req[5] = 130;
+								curproxy->check_req[5] = 0x82; // 130
 								curproxy->check_req[11] = 1;
 								curproxy->check_req[12] = 33;
 								memcpy(&curproxy->check_req[36], mysqluser, userlen);
@@ -5108,7 +5115,7 @@ stats_error_parsing:
 								((unsigned char) (packetlen >> 16) & 0xff));
 
 							curproxy->check_req[3] = 1;
-							curproxy->check_req[5] = 128;
+							curproxy->check_req[5] = 0x80;
 							curproxy->check_req[8] = 1;
 							memcpy(&curproxy->check_req[9], mysqluser, userlen);
 							curproxy->check_req[9 + userlen + 1 + 1]     = 1;
@@ -7422,32 +7429,31 @@ next_line:
 		list_for_each_entry(ics, &sections, list) {
 			if (strcmp(args[0], ics->section_name) == 0) {
 				cursection = ics->section_name;
+				pcs = cs;
 				cs = ics;
 				break;
 			}
 		}
 
+		if (pcs && pcs->post_section_parser) {
+			err_code |= pcs->post_section_parser();
+			if (err_code & ERR_ABORT)
+				goto err;
+		}
+		pcs = NULL;
+
 		if (!cs) {
 			ha_alert("parsing [%s:%d]: unknown keyword '%s' out of section.\n", file, linenum, args[0]);
 			err_code |= ERR_ALERT | ERR_FATAL;
 		} else {
-			/* else it's a section keyword */
-
-			if (pcs != cs && pcs && pcs->post_section_parser) {
-				err_code |= pcs->post_section_parser();
-				if (err_code & ERR_ABORT)
-					goto err;
-			}
-
 			err_code |= cs->section_parser(file, linenum, args, kwm);
 			if (err_code & ERR_ABORT)
 				goto err;
 		}
-		pcs = cs;
 	}
 
-	if (pcs == cs && pcs && pcs->post_section_parser)
-		err_code |= pcs->post_section_parser();
+	if (cs && cs->post_section_parser)
+		err_code |= cs->post_section_parser();
 
 err:
 	free(cfg_scope);
@@ -7629,7 +7635,7 @@ int check_config_validity()
 			if (curproxy->mode == PR_MODE_HTTP && global.tune.bufsize < 16384) {
 #ifdef OPENSSL_NPN_NEGOTIATED
 				/* check NPN */
-				if (bind_conf->ssl_conf.npn_str && strcmp(bind_conf->ssl_conf.npn_str, "\002h2") == 0) {
+				if (bind_conf->ssl_conf.npn_str && strstr(bind_conf->ssl_conf.npn_str, "\002h2")) {
 					ha_alert("config : HTTP frontend '%s' enables HTTP/2 via NPN at [%s:%d], so global.tune.bufsize must be at least 16384 bytes (%d now).\n",
 						 curproxy->id, bind_conf->file, bind_conf->line, global.tune.bufsize);
 					cfgerr++;
@@ -7637,7 +7643,7 @@ int check_config_validity()
 #endif
 #ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
 				/* check ALPN */
-				if (bind_conf->ssl_conf.alpn_str && strcmp(bind_conf->ssl_conf.alpn_str, "\002h2") == 0) {
+				if (bind_conf->ssl_conf.alpn_str && strstr(bind_conf->ssl_conf.alpn_str, "\002h2")) {
 					ha_alert("config : HTTP frontend '%s' enables HTTP/2 via ALPN at [%s:%d], so global.tune.bufsize must be at least 16384 bytes (%d now).\n",
 						 curproxy->id, bind_conf->file, bind_conf->line, global.tune.bufsize);
 					cfgerr++;
@@ -7649,9 +7655,9 @@ int check_config_validity()
 			/* detect and address thread affinity inconsistencies */
 			nbproc = 0;
 			if (bind_conf->bind_proc)
-				nbproc = my_ffsl(bind_conf->bind_proc);
+				nbproc = my_ffsl(bind_conf->bind_proc) - 1;
 
-			mask = bind_conf->bind_thread[nbproc - 1];
+			mask = bind_conf->bind_thread[nbproc];
 			if (mask && !(mask & all_threads_mask)) {
 				unsigned long new_mask = 0;
 
@@ -7997,6 +8003,11 @@ int check_config_validity()
 					 curproxy->id, mrule->table.name ? mrule->table.name : curproxy->id);
 				cfgerr++;
 			}
+			else if (curproxy->bind_proc & ~target->bind_proc) {
+				ha_alert("Proxy '%s': stick-table '%s' referenced 'stick-store' rule not present on all processes covered by proxy '%s'.\n",
+				         curproxy->id, target->id, curproxy->id);
+				cfgerr++;
+			}
 			else {
 				free((void *)mrule->table.name);
 				mrule->table.t = &(target->table);
@@ -8028,6 +8039,11 @@ int check_config_validity()
 			else if (!stktable_compatible_sample(mrule->expr, target->table.type)) {
 				ha_alert("Proxy '%s': type of fetch not usable with type of stick-table '%s'.\n",
 					 curproxy->id, mrule->table.name ? mrule->table.name : curproxy->id);
+				cfgerr++;
+			}
+			else if (curproxy->bind_proc & ~target->bind_proc) {
+				ha_alert("Proxy '%s': stick-table '%s' referenced 'stick-store' rule not present on all processes covered by proxy '%s'.\n",
+				         curproxy->id, target->id, curproxy->id);
 				cfgerr++;
 			}
 			else {
@@ -8830,6 +8846,33 @@ out_uri_auth_compat:
 				}
 			}
 		}
+
+		/* initialize idle conns lists */
+		for (newsrv = curproxy->srv; newsrv; newsrv = newsrv->next) {
+			int i;
+
+			newsrv->priv_conns = calloc(global.nbthread, sizeof(*newsrv->priv_conns));
+			newsrv->idle_conns = calloc(global.nbthread, sizeof(*newsrv->idle_conns));
+			newsrv->safe_conns = calloc(global.nbthread, sizeof(*newsrv->safe_conns));
+
+			if (!newsrv->priv_conns || !newsrv->idle_conns || !newsrv->safe_conns) {
+				free(newsrv->safe_conns); newsrv->safe_conns = NULL;
+				free(newsrv->idle_conns); newsrv->idle_conns = NULL;
+				free(newsrv->priv_conns); newsrv->priv_conns = NULL;
+				ha_alert("parsing [%s:%d] : failed to allocate idle connections for server '%s'.\n",
+					 newsrv->conf.file, newsrv->conf.line, newsrv->id);
+				cfgerr++;
+				continue;
+			}
+
+			for (i = 0; i < global.nbthread; i++) {
+				LIST_INIT(&newsrv->priv_conns[i]);
+				LIST_INIT(&newsrv->idle_conns[i]);
+				LIST_INIT(&newsrv->safe_conns[i]);
+			}
+
+			LIST_INIT(&newsrv->update_status);
+		}
 	}
 
 	/***********************************************************/
@@ -9111,7 +9154,12 @@ out_uri_auth_compat:
 				curpeers->peers_fe = NULL;
 			}
 			else {
-				peers_init_sync(curpeers);
+				if (!peers_init_sync(curpeers)) {
+					ha_alert("Peers section '%s': out of memory, giving up on peers.\n",
+						 curpeers->id);
+					cfgerr++;
+					break;
+				}
 				last = &curpeers->next;
 				continue;
 			}

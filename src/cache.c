@@ -400,7 +400,7 @@ enum act_return http_action_store_cache(struct act_rule *rule, struct proxy *px,
 	struct cache *cache = (struct cache *)rule->arg.act.p[0];
 	struct shared_context *shctx = shctx_ptr(cache);
 	struct cache_entry *object;
-
+	unsigned int key = *(unsigned int *)txn->cache_hash;
 
 	/* Don't cache if the response came from a cache */
 	if ((obj_type(s->target) == OBJ_TYPE_APPLET) &&
@@ -418,6 +418,10 @@ enum act_return http_action_store_cache(struct act_rule *rule, struct proxy *px,
 
 	/* cache only GET method */
 	if (txn->meth != HTTP_METH_GET)
+		goto out;
+
+	/* cache key was not computed */
+	if (!key)
 		goto out;
 
 	/* cache only 200 status code */
@@ -478,7 +482,7 @@ enum act_return http_action_store_cache(struct act_rule *rule, struct proxy *px,
 
 					cache_ctx->first_block = first;
 
-					object->eb.key = (*(unsigned int *)&txn->cache_hash);
+					object->eb.key = key;
 					memcpy(object->hash, txn->cache_hash, sizeof(object->hash));
 					/* Insert the node later on caching success */
 
@@ -770,17 +774,32 @@ int cfg_parse_cache(const char *file, int linenum, char **args, int kwm)
 			tmp_cache_config->maxblocks = 0;
 		}
 	} else if (strcmp(args[0], "total-max-size") == 0) {
-		int maxsize;
+		unsigned long int maxsize;
+		char *err;
 
 		if (alertif_too_many_args(1, file, linenum, args, &err_code)) {
 			err_code |= ERR_ABORT;
 			goto out;
 		}
 
-		/* size in megabytes */
-		maxsize = atoi(args[1]) * 1024 * 1024 / CACHE_BLOCKSIZE;
-		tmp_cache_config->maxblocks = maxsize;
+		maxsize = strtoul(args[1], &err, 10);
+		if (err == args[1] || *err != '\0') {
+			ha_warning("parsing [%s:%d]: total-max-size wrong value '%s'\n",
+			           file, linenum, args[1]);
+			err_code |= ERR_ABORT;
+			goto out;
+		}
 
+		if (maxsize > (UINT_MAX >> 20)) {
+			ha_warning("parsing [%s:%d]: \"total-max-size\" (%s) must not be greater than %u\n",
+			           file, linenum, args[1], UINT_MAX >> 20);
+			err_code |= ERR_ABORT;
+			goto out;
+		}
+
+		/* size in megabytes */
+		maxsize *= 1024 * 1024 / CACHE_BLOCKSIZE;
+		tmp_cache_config->maxblocks = maxsize;
 	} else if (strcmp(args[0], "max-age") == 0) {
 		if (alertif_too_many_args(1, file, linenum, args, &err_code)) {
 			err_code |= ERR_ABORT;
@@ -822,7 +841,7 @@ int cfg_post_parse_section_cache()
 
 		ret_shctx = shctx_init(&shctx, tmp_cache_config->maxblocks, CACHE_BLOCKSIZE, sizeof(struct cache), 1);
 
-		if (ret_shctx < 0) {
+		if (ret_shctx <= 0) {
 			if (ret_shctx == SHCTX_E_INIT_LOCK)
 				ha_alert("Unable to initialize the lock for the cache.\n");
 			else

@@ -1403,12 +1403,13 @@ static int wake_srv_chk(struct conn_stream *cs)
 	}
 
 	if (check->result != CHK_RES_UNKNOWN) {
-		/* We're here because nobody wants to handle the error, so we
-		 * sure want to abort the hard way.
-		 */
+		/* Check complete or aborted. If connection not yet closed do it
+		 * now and wake the check task up to be sure the result is
+		 * handled ASAP. */
 		conn_sock_drain(conn);
 		cs_close(cs);
 		ret = -1;
+		task_wakeup(check->task, TASK_WOKEN_IO);
 	}
 
 	HA_SPIN_UNLOCK(SERVER_LOCK, &check->server->lock);
@@ -2770,7 +2771,7 @@ static int tcpcheck_main(struct check *check)
 			conn_install_mux(conn, &mux_pt_ops, cs);
 
 			ret = SF_ERR_INTERNAL;
-			if (proto->connect)
+			if (proto && proto->connect)
 				ret = proto->connect(conn,
 						     1 /* I/O polling is always needed */,
 						     (next && next->action == TCPCHK_ACT_EXPECT) ? 0 : 2);
@@ -3182,7 +3183,7 @@ int init_email_alert(struct mailers *mls, struct proxy *p, char **err)
 
 	if ((queues = calloc(mls->count, sizeof(*queues))) == NULL) {
 		memprintf(err, "out of memory while allocating mailer alerts queues");
-		goto error;
+		goto fail_no_queue;
 	}
 
 	for (mailer = mls->mailer_list; mailer; i++, mailer = mailer->next) {
@@ -3239,6 +3240,7 @@ int init_email_alert(struct mailers *mls, struct proxy *p, char **err)
 		free_check(check);
 	}
 	free(queues);
+  fail_no_queue:
 	return 1;
 }
 
