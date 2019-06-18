@@ -10332,17 +10332,19 @@ smp_fetch_path(const struct arg *args, struct sample *smp, const char *kw, void 
 
 /* Check on URI PATH END. A pointer to the PATH is stored. The path starts at
  * the first '/' after the possible hostname, and ends before the possible '?'.
- */
+*/
+ 
 static int
 smp_fetch_path_end(const struct arg *args, struct sample *smp, const char *kw, void *private)
 {
+    struct channel *chn = SMP_REQ_CHN(smp);
     struct http_txn *txn;
     char *ptr, *end, *sptr;
     
-    CHECK_HTTP_MESSAGE_FIRST();
+    CHECK_HTTP_MESSAGE_FIRST(chn);
     
     txn = smp->strm->txn;
-    end = txn->req.chn->buf->p + txn->req.sl.rq.u + txn->req.sl.rq.u_l;
+    end = chn->buf->p + txn->req.sl.rq.u + txn->req.sl.rq.u_l;
     ptr = http_get_path(txn);
     if (!ptr)
         return 0;
@@ -12911,7 +12913,7 @@ static struct sample_fetch_kw_list sample_fetch_keywords = {ILH, {
 	{ "http_first_req",  smp_fetch_http_first_req, 0,                NULL,    SMP_T_BOOL, SMP_USE_HRQHP },
 	{ "method",          smp_fetch_meth,           0,                NULL,    SMP_T_METH, SMP_USE_HRQHP },
 	{ "path",            smp_fetch_path,           0,                NULL,    SMP_T_STR,  SMP_USE_HRQHV },
-    { "path.end",        smp_fetch_path_end,       0,                NULL,    SMP_T_STR,  SMP_USE_HRQHV },
+	{ "path.end",        smp_fetch_path_end,       0,                NULL,    SMP_T_STR,  SMP_USE_HRQHV },
 	{ "query",           smp_fetch_query,          0,                NULL,    SMP_T_STR,  SMP_USE_HRQHV },
 
 	/* HTTP protocol on the request path */
