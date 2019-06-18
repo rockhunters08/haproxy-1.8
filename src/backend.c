@@ -477,7 +477,7 @@ static struct server *get_server_hh(struct stream *s, const struct server *avoid
  * is returned. If any server is found, it will be returned. If no valid server
  * is found, NULL is returned.
  */
-struct server *get_server_hashon(struct stream *s)
+struct server *get_server_hashon(struct stream *s, const struct server *avoid)
 {
     struct proxy *px   = s->be;
     struct server *srv = NULL;
@@ -528,7 +528,7 @@ struct server *get_server_hashon(struct stream *s)
         if ((px->lbprm.algo & BE_LB_HASH_MOD) == BE_LB_HMOD_AVAL)
             hash = full_hash(hash);
         if (px->lbprm.algo & BE_LB_LKUP_CHTREE)
-            srv = chash_get_server_hash(px, hash);
+            srv = chash_get_server_hash(px, hash, avoid);
         else
             srv = map_get_server_hash(px, hash);
     }   
@@ -739,7 +739,7 @@ int assign_server(struct stream *s)
             case BE_LB_HASH_ON:
                 if (!s->txn || s->txn->req.msg_state < HTTP_MSG_BODY)
                     break;
-                srv = get_server_hashon(s);
+                srv = get_server_hashon(s, prev_srv);
                 break;
 
 			case BE_LB_HASH_HDR:
